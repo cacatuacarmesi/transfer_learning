@@ -1,15 +1,15 @@
 import tensorflow as tf
-import numpy as np
 import generate_training_model
-from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 
 IMG_SIZE = 224
 NUM_CLASSES = 4
 BATCH_SIZE = 32
-EPOCHS = 10
-DATASET_PATH = "dataset_resized"  # cambia esto a tu ruta
+DATASET_PATH = "dataset_resized"  # <-- tu ruta
+CHECKPOINT_PATH = "checkpoint.ckpt"  # <-- nombre correcto del checkpoint
+SAVED_MODEL_DIR = "saved_model"
+TFLITE_PATH = "model.tflite"
 
-# 1. Cargar imágenes
+# 1. Dataset (solo para inicializar entradas del modelo si es necesario)
 dataset = tf.keras.utils.image_dataset_from_directory(
     DATASET_PATH,
     image_size=(IMG_SIZE, IMG_SIZE),
@@ -19,18 +19,18 @@ dataset = tf.keras.utils.image_dataset_from_directory(
 )
 dataset = dataset.map(lambda x, y: (tf.cast(x, tf.float32) / 255.0, y))
 
-# 2. Crear el modelo
+# 2. Crear y preparar el modelo
 model = generate_training_model.TransferLearningModel()
 model.initialize_weights()
 
+# 3. Restaurar pesos desde checkpoint
+model.restore(tf.constant(CHECKPOINT_PATH))
+print("✅ Checkpoint restaurado correctamente.")
 
-model.restore(tf.constant("checkpoint.ckpt"))
-
-# 5. Exportar como SavedModel
-saved_model_dir = "saved_model"
+# 4. Exportar como SavedModel (con firmas necesarias)
 tf.saved_model.save(
     model,
-    saved_model_dir,
+    SAVED_MODEL_DIR,
     signatures={
         'load': model.load.get_concrete_function(),
         'train': model.train.get_concrete_function(),
@@ -39,19 +39,17 @@ tf.saved_model.save(
         'restore': model.restore.get_concrete_function(),
         'initialize': model.initialize_weights.get_concrete_function(),
     })
+print("✅ Modelo guardado como SavedModel.")
 
-# 6. Convertir a TFLite congelando variables
-def freeze_and_convert(saved_model_dir):
-    imported = tf.saved_model.load(saved_model_dir)
-    infer = imported.infer.get_concrete_function()
-    frozen_func = convert_variables_to_constants_v2(infer)
-    converter = tf.lite.TFLiteConverter.from_concrete_functions([frozen_func])
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS
-    ]
-    tflite_model = converter.convert()
-    with open("model_frozen.tflite", "wb") as f:
-        f.write(tflite_model)
-    print("\n✅ Modelo TFLite congelado exportado correctamente.")
+# 5. Convertir a TFLite CON firmas
+converter = tf.lite.TFLiteConverter.from_saved_model(SAVED_MODEL_DIR)
+converter.target_spec.supported_ops = [
+    tf.lite.OpsSet.TFLITE_BUILTINS,
+    tf.lite.OpsSet.SELECT_TF_OPS  # importante para usar operaciones no nativas
+]
+converter.experimental_enable_resource_variables = True
+tflite_model = converter.convert()
 
-freeze_and_convert(saved_model_dir)
+with open(TFLITE_PATH, "wb") as f:
+    f.write(tflite_model)
+print(f"✅ Modelo TFLite exportado correctamente: {TFLITE_PATH}")
