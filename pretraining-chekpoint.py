@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import generate_training_model
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 
 IMG_SIZE = 224
 NUM_CLASSES = 4
@@ -22,16 +23,8 @@ dataset = dataset.map(lambda x, y: (tf.cast(x, tf.float32) / 255.0, y))
 model = generate_training_model.TransferLearningModel()
 model.initialize_weights()
 
-# 3. Entrenar
-for epoch in range(EPOCHS):
-    print(f"\nEpoch {epoch+1}/{EPOCHS}")
-    for images, labels in dataset:
-        bottleneck = model.load(images)['bottleneck']
-        result = model.train(bottleneck, labels)
-        print("  Loss:", float(result['loss']))
 
-# 4. Guardar checkpoint
-model.save(tf.constant("checkpoint.ckpt"))
+model.restore(tf.constant("checkpoint.ckpt"))
 
 # 5. Exportar como SavedModel
 saved_model_dir = "saved_model"
@@ -51,7 +44,7 @@ tf.saved_model.save(
 def freeze_and_convert(saved_model_dir):
     imported = tf.saved_model.load(saved_model_dir)
     infer = imported.infer.get_concrete_function()
-    frozen_func = tf.graph_util.convert_variables_to_constants_v2(infer)
+    frozen_func = convert_variables_to_constants_v2(infer)
     converter = tf.lite.TFLiteConverter.from_concrete_functions([frozen_func])
     converter.target_spec.supported_ops = [
         tf.lite.OpsSet.TFLITE_BUILTINS
